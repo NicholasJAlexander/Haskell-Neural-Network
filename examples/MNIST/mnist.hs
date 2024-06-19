@@ -1,9 +1,8 @@
 module Main where
 
-import NN
+import qualified NN
 import Data.Matrix
-import System.Environment
-import System.IO
+
 import qualified Data.ByteString as B
 import Data.Word (Word8)
 
@@ -29,11 +28,11 @@ decodeIDX1 = B.drop 8
 
 decodeIDX3 :: B.ByteString -> [[Word8]]
 decodeIDX3 bs =
-    let (_, rest) = B.splitAt 4 bs
-        (numImagesBS, rest2) = B.splitAt 4 rest
-        (_, imageData) = B.splitAt 8 rest2
-        numImages = fromIntegral $ B.foldl' (\acc x -> acc * 256 + fromIntegral x) 0 numImagesBS
-    in chunksOf (28 * 28) (B.unpack imageData)
+  let (_, rest) = B.splitAt 4 bs
+      (_, rest2) = B.splitAt 4 rest
+      (_, imageData) = B.splitAt 8 rest2
+      -- numImages = fromIntegral $ B.foldl' (\acc x -> acc * 256 + fromIntegral x) (0 :: Int) (B.take 4 rest)
+  in chunksOf (28 * 28) (B.unpack imageData)
 
 chunksOf :: Int -> [a] -> [[a]]
 chunksOf _ [] = []
@@ -55,17 +54,16 @@ main = do
 
     -- Initialize the neural network
     let neurons = [784, 28, 10]
-        activationFuncs = [tanhAF, tanhAF]
+        activationFuncs = [NN.tanhAF, NN.tanhAF]
         learningRate = 0.1
-        net = initializeNetwork neurons activationFuncs (-0.5) 0.5 learningRate
+        net = NN.initializeNetwork neurons activationFuncs (-0.5) 0.5 learningRate
 
     -- Train the network
-    let epochs = 1
-        trainData = zip trainImages (map labelToColumnVector trainLabels)
+    let trainData = zip trainImages (map labelToColumnVector trainLabels)
     
-    trainedNet <- trainBatchLogged net trainData "output.txt"
+    trainedNet <- NN.trainBatchLogged net (take 10000 trainData) "output.txt"
 
-    printLayers (layers trainedNet)
+    NN.printLayers (NN.layers trainedNet)
 
     -- Evaluate the network on the test set
     {-

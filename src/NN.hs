@@ -331,7 +331,8 @@ initializeNetwork neurons activationFuncs a b lRate =
 
 -- Training on a batch of data
 trainBatch :: BackpropNet -> [(ColumnVector Double, ColumnVector Double)] -> BackpropNet
-trainBatch net dataset = foldl trainSingleExample net dataset
+-- trainBatch net dataset = foldl trainSingleExample net dataset
+trainBatch = foldl trainSingleExample
     where
         trainSingleExample :: BackpropNet -> (ColumnVector Double, ColumnVector Double) -> BackpropNet
         trainSingleExample currentNet (input, target) = currentNet { layers = updatedLayers }

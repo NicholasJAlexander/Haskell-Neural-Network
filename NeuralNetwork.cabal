@@ -8,48 +8,23 @@ build-type: Simple
 extra-doc-files: CHANGELOG.md
 
 common warnings
-  ghc-options: -Wall
+  ghc-options: -Wall -fprof-auto -rtsopts
 
 library
-  import: warnings
-  exposed-modules:
-    NN
-  build-depends:
-    base ^>=4.17.2.1,
-    matrix,
-    random,
-    JuicyPixels,
-    bytestring,
-    pipes,
-    transformers,
-    text,
-    array,
-    filepath,
-    zlib
+  exposed-modules: NN
+  build-depends: base ^>=4.17.2.1, matrix, random, JuicyPixels, bytestring, pipes, transformers, text, array, filepath, zlib
   hs-source-dirs: src, examples
   default-language: Haskell2010
+  ghc-options: -Wall -fprof-auto
 
 executable test
   main-is: Main.hs
-  build-depends:
-    base,
-    NeuralNetwork,
-    matrix,
-    JuicyPixels,
-    bytestring,
-    pipes,
-    transformers,
-    text,
-    array,
-    filepath,
-    zlib
+  build-depends: base, NeuralNetwork, matrix, JuicyPixels, bytestring, pipes, transformers, text, array, filepath, zlib
   default-language: Haskell2010
+  ghc-options: -Wall -fprof-auto -rtsopts
 
 executable mnist
   main-is: examples/MNIST/mnist.hs
-  build-depends:
-    base,
-    NeuralNetwork,
-    matrix,
-    bytestring
+  build-depends: base, NeuralNetwork, matrix, bytestring
   default-language: Haskell2010
+  ghc-options: -Wall -fprof-auto -rtsopts
