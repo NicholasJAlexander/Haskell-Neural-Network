@@ -1,0 +1,55 @@
+cabal-version: 3.4
+name: NeuralNetwork
+version: 0.1.0.0
+license: MIT
+license-file: LICENSE
+author: Nicholas Alexander
+build-type: Simple
+extra-doc-files: CHANGELOG.md
+
+common warnings
+  ghc-options: -Wall
+
+library
+  import: warnings
+  exposed-modules:
+    NN
+  build-depends:
+    base ^>=4.17.2.1,
+    matrix,
+    random,
+    JuicyPixels,
+    bytestring,
+    pipes,
+    transformers,
+    text,
+    array,
+    filepath,
+    zlib
+  hs-source-dirs: src, examples
+  default-language: Haskell2010
+
+executable test
+  main-is: Main.hs
+  build-depends:
+    base,
+    NeuralNetwork,
+    matrix,
+    JuicyPixels,
+    bytestring,
+    pipes,
+    transformers,
+    text,
+    array,
+    filepath,
+    zlib
+  default-language: Haskell2010
+
+executable mnist
+  main-is: examples/MNIST/mnist.hs
+  build-depends:
+    base,
+    NeuralNetwork,
+    matrix,
+    bytestring
+  default-language: Haskell2010
