@@ -57,3 +57,7 @@ dist-newstyle/cache/source-hashes
 dist-newstyle/cache/up-to-date
 dist-newstyle/packagedb/ghc-9.4.8/NeuralNetwork-0.1.0.0-inplace.conf
 dist-newstyle/packagedb/ghc-9.4.8/package.cache
+examples/IRIS/iris.csv
+*.prof
+*.prof
+mnist.prof

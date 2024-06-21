@@ -2,9 +2,18 @@ module NN where
 import System.Random (randomRIO)
 import Control.Monad (replicateM)
 import Data.Matrix
+    ( Matrix(..),
+      fromLists,
+      elementwiseUnsafe,
+      multStd,
+      scaleMatrix,
+      toList,
+      transpose )
 import System.IO.Unsafe (unsafePerformIO)
 import System.IO
+    ( Handle, IOMode(AppendMode), hPutStrLn, withFile )
 import Control.Monad (foldM)  -- Assuming both are used
+import ActivationFunctions (ActivationFunc, aF, aF')
 
 -- Function to generate a matrix with random values between a and b, appearing as pure
 generateWeightsMatrix :: (Int, Int) -> Double -> Double -> Matrix Double
@@ -15,21 +24,6 @@ generateWeightsMatrices :: [Int] -> Double -> Double -> [Matrix Double]
 generateWeightsMatrices neurons a b = zipWith (\m n -> generateWeightsMatrix (m, n) a b) (tail neurons) neurons
 
 -- * Data Types
-
--- | Data type representing an activation function in a neural network.
---   Contains the function, its derivative, and a description.
-data ActivationFunc = ActivationFunc{
-    -- | The activation function itself. 
-    --   Takes a 'Double' and returns a 'Double'.
-    aF :: Double -> Double,
-
-    -- | The derivative of the activation function.
-    --   This is necessary for backpropagation in neural networks.
-    aF' :: Double -> Double,
-
-    -- | A descriptive string for the activation function.
-    desc :: String
-}
 
 -- | Data type representing a layer in a neural network.
 --   Contains the weights matrix and the activation function used by the layer.
@@ -131,7 +125,7 @@ dimensionMatch :: Matrix Double -- ^ Matrix 1 (to be checked for matching dimens
                -> Matrix Double -- ^ Matrix 2 (returned if dimensions with Matrix 1 match).
                -> Matrix Double -- ^ The second matrix, if the dimensions match.
 dimensionMatch m1 m2
-    | (nrows m1) == (ncols m2) = m2
+    | nrows m1 == ncols m2 = m2
     | otherwise = error "Inconsistent dimensions in weight matrix"
 
 -- | Validates the input vector for a neural network.
@@ -165,7 +159,7 @@ hadamardProduct :: Num a
                 => Matrix a -- ^ The first matrix in the Hadamard product.
                 -> Matrix a -- ^ The second matrix in the Hadamard product.
                 -> Matrix a -- ^ The resulting matrix after computing the Hadamard product.
-hadamardProduct m1 m2 = elementwiseUnsafe (*) m1 m2 -- Uses an unsafe element-wise operation for performance.
+hadamardProduct = elementwiseUnsafe (*) -- Uses an unsafe element-wise operation for performance.
     
 -- * Initialise Backpropagation Network
 
@@ -213,10 +207,9 @@ propagate layerJ layerK
         x = propOut layerJ -- Output of layer J.
         w = lWeights layerK -- Weights from layer K.
         a = multStd w x -- Matrix multiplication wx, resulting in a column vector.
-        f = aF ( lAF layerK ) -- Activation function of layerK.
-        -- The function passed to fmap (mapCol) takes the current row as an additional argument.
+        f = aF (lAF layerK) -- Activation function of layerK.
         y = fmap f a 
-        f' = aF' ( lAF layerK )
+        f' = aF' (lAF layerK)
         f'a = fmap f' a
 
 -- | Propagates an input vector through the neural network, returning the state of each layer after propagation.
@@ -366,7 +359,6 @@ trainEpochs net epochs dataset = trainEpochs trainedNet (epochs - 1) dataset
 meanSquaredError :: ColumnVector Double -> ColumnVector Double -> Double
 meanSquaredError output target = (sum . toList $ fmap (^(2 :: Int)) (elementwiseUnsafe (-) output target)) / fromIntegral (nrows output)
 
-
 evaluate :: BackpropNet -> [(ColumnVector Double, ColumnVector Double)] -> Double
 evaluate net dataset = totalLoss / fromIntegral (length dataset)
     where
@@ -385,23 +377,3 @@ saveModel net path = writeFile path (show net)
 loadModel :: FilePath -> IO BackpropNet
 loadModel path = read <$> readFile path
 -}
-
--- identity activation function
-identityAF :: ActivationFunc
-identityAF = ActivationFunc
-     {
-       aF = id,
-       aF' = const 1.0,
-       desc = "identity"
-    }
-
-tanhAF :: ActivationFunc
-tanhAF = ActivationFunc
-    {
-        aF = \x -> (exp x - exp (-x)) / (exp x + exp (-x)),
-        aF' = \x -> 1 - (tanh x) ^ (2 :: Int),
-        desc = "Tanh"
-    }
-
-activationFuncType :: ActivationFunc -> String
-activationFuncType af = desc af
