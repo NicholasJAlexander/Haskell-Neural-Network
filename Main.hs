@@ -1,5 +1,8 @@
 import NN
-import Data.Matrix
+import qualified Matrix as M
+import ActivationFunctions
+import Codec.Picture.Metadata (Value(Double))
+import qualified Data.Vector.Unboxed as UV
 
 main :: IO()
 main = do
@@ -13,20 +16,19 @@ main = do
         initialNN = initializeNetwork neurons activationFuncs a b lRate
 
         -- Example input vector (2-dimensional for simplicity)
-        inputVector = fromList 20 1 [1..20]
+        inputVector :: UV.Vector Double
+        inputVector = UV.fromList [1..20]
 
         -- Example target output
-        targetOutput = fromList 10 1 [0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,0.99]
+        targetOutput = UV.fromList [0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,0.99]
 
         trainedNN = trainEpochs initialNN 20000 [(inputVector, targetOutput)] 
 
-        score = evaluate trainedNN [(inputVector, targetOutput)]
+        --score = evaluate trainedNN [(inputVector, targetOutput)]
     
-    print $ ncols inputVector
-    print $ nrows inputVector
+    print $ UV.length inputVector
+    print $ UV.length inputVector
 
-
-    print score
 
     print $ getOutput initialNN inputVector
 

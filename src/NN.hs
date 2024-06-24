@@ -1,26 +1,22 @@
 module NN where
 import System.Random (randomRIO)
-import Control.Monad (replicateM)
-import Data.Matrix
-    ( Matrix(..),
-      fromLists,
-      elementwiseUnsafe,
-      multStd,
-      scaleMatrix,
-      toList,
-      transpose )
+import Control.Monad ( replicateM, foldM )
+
+import qualified Matrix as M
 import System.IO.Unsafe (unsafePerformIO)
 import System.IO
-    ( Handle, IOMode(AppendMode), hPutStrLn, withFile )
-import Control.Monad (foldM)  -- Assuming both are used
+    ( Handle, IOMode(AppendMode), hPutStrLn, withFile )  -- Assuming both are used
 import ActivationFunctions (ActivationFunc, aF, aF')
 
+import qualified Data.Vector as V
+import qualified Data.Vector.Unboxed as UV
+
 -- Function to generate a matrix with random values between a and b, appearing as pure
-generateWeightsMatrix :: (Int, Int) -> Double -> Double -> Matrix Double
-generateWeightsMatrix (n, m) a b = unsafePerformIO $ fromLists <$> replicateM n (replicateM m (randomRIO (a, b)))
+generateWeightsMatrix :: (Int, Int) -> Double -> Double -> M.Matrix Double
+generateWeightsMatrix (n, m) a b = unsafePerformIO $ M.fromLists <$> replicateM n (replicateM m (randomRIO (a, b)))
 
 -- Function to generate a list of weight matrices based on the number of neurons in each consecutive layers
-generateWeightsMatrices :: [Int] -> Double -> Double -> [Matrix Double]
+generateWeightsMatrices :: [Int] -> Double -> Double -> [M.Matrix Double]
 generateWeightsMatrices neurons a b = zipWith (\m n -> generateWeightsMatrix (m, n) a b) (tail neurons) neurons
 
 -- * Data Types
@@ -30,18 +26,11 @@ generateWeightsMatrices neurons a b = zipWith (\m n -> generateWeightsMatrix (m,
 data Layer = Layer {
     -- | The weights matrix of the layer.
     --   It is a 'Matrix' of 'Double' values.
-    lWeights :: Matrix Double,
+    lWeights :: M.Matrix Double,
 
     -- | The activation function used by this layer.
     lAF :: ActivationFunc
 }
-
-printLayers :: [Layer] -> IO()
-printLayers [] = return ()
-printLayers (l:ls) = do
-    print (lWeights l)
-    printLayers ls
-
 -- | Data type representing a backpropagation neural network.
 --   Contains a list of network layers and a learning rate.
 data BackpropNet = BackpropNet
@@ -57,21 +46,21 @@ data BackpropNet = BackpropNet
 
 -- | Data type representing a layer during the propagation phase in a neural network.
 --   Contains various properties required for forward and backward propagation.
-data PropagatedLayer 
+data PropagatedLayer
     = PropagatedLayer
         {
             -- | Input to the layer. Represented as a column vector.
-            propIn :: ColumnVector Double,
+            propIn :: M.ColumnVector Double,
 
             -- | Output from the layer. Also a column vector.
-            propOut :: ColumnVector Double,
+            propOut :: M.ColumnVector Double,
 
             -- | First derivative of the activation function for this layer.
             --   This is used in the backpropagation process.
-            propF'a :: ColumnVector Double,
+            propF'a :: M.ColumnVector Double,
 
             -- | Weights for this layer represented as a matrix.
-            propW :: Matrix Double,
+            propW :: M.Matrix Double,
 
             -- | Activation function used by this layer.
             propAF :: ActivationFunc
@@ -79,7 +68,7 @@ data PropagatedLayer
     | PropagatedInputLayer -- | Special case for the input layer where the output is the same as the input.
         {
             -- | Output from the input layer, which is the same as its input.
-            propOut :: ColumnVector Double
+            propOut :: M.ColumnVector Double
         }
 
 -- | Represents a layer in the backpropagation phase of a neural network.
@@ -87,31 +76,26 @@ data PropagatedLayer
 data BackpropagatedLayer
     = BackpropagatedLayer{
         -- | Partial derivative of the cost with respect to the z-value (weighted input) of this layer.
-        bpDazzle :: ColumnVector Double,
+        bpDazzle :: M.ColumnVector Double,
 
         -- | Gradient of the error with respect to the output of this layer.
-        bpErrGrad :: ColumnVector Double,
+        bpErrGrad :: M.Matrix Double,
 
         -- | Value of the first derivative of the activation function for this layer.
-        bpF'a :: ColumnVector Double,
+        bpF'a :: M.ColumnVector Double,
 
         -- | Input to this layer.
-        bpIn :: ColumnVector Double,
+        bpIn :: M.ColumnVector Double,
 
         -- | Output from this layer.
-        bpOut :: ColumnVector Double,
+        bpOut :: M.ColumnVector Double,
 
         -- | Weights for this layer.
-        bpW :: Matrix Double,
+        bpW :: M.Matrix Double,
 
         -- | Activation function specification for this layer.
         bpAF :: ActivationFunc
     }
-
--- | Type alias for a column vector.
---   Represented as a matrix but typically used to denote vectors in matrix computations, 
---   especially in the context of neural networks.
-type ColumnVector a = Matrix a
 
 -- * Helper Function
 
@@ -121,11 +105,11 @@ type ColumnVector a = Matrix a
 --   - Matrix 1: The matrix whose number of rows should match the number of columns in Matrix 2.
 --   - Matrix 2: This matrix is returned if the dimensions match with Matrix 1.
 --   - Returns: The second matrix, if the dimensions are compatible.
-dimensionMatch :: Matrix Double -- ^ Matrix 1 (to be checked for matching dimensions with Matrix 2).
-               -> Matrix Double -- ^ Matrix 2 (returned if dimensions with Matrix 1 match).
-               -> Matrix Double -- ^ The second matrix, if the dimensions match.
+dimensionMatch :: M.Matrix Double -- ^ Matrix 1 (to be checked for matching dimensions with Matrix 2).
+               -> M.Matrix Double -- ^ Matrix 2 (returned if dimensions with Matrix 1 match).
+               -> M.Matrix Double -- ^ The second matrix, if the dimensions match.
 dimensionMatch m1 m2
-    | nrows m1 == ncols m2 = m2
+    | M.nrows m1 == M.ncols m2 = m2
     | otherwise = error "Inconsistent dimensions in weight matrix"
 
 -- | Validates the input vector for a neural network.
@@ -133,34 +117,23 @@ dimensionMatch m1 m2
 --   Checks if the input vector has appropriate dimensions and values 
 --   (typically in the range [0, 1]) to be processed by the network.
 validateInput :: BackpropNet         -- ^ The neural network for input validation.
-              -> ColumnVector Double -- ^ The input vector to be validated.
-              -> ColumnVector Double -- ^ The validated input vector; throws error if validation fails.
+              -> M.ColumnVector Double -- ^ The input vector to be validated.
+              -> M.ColumnVector Double -- ^ The validated input vector; throws error if validation fails.
 validateInput net input
     | validSize = input
     -- | validSize && validValues = input
-    | otherwise = error $ "Inconsistent dimensions in input vector. Expected size: " ++ 
-        show fLayerSize ++ 
-        ", Actual size: " ++ 
+    | otherwise = error $ "Inconsistent dimensions in input vector. Expected size: " ++
+        show fLayerSize ++
+        ", Actual size: " ++
         show inputSize
-    where 
+    where
         -- Checks if the number of columns in the weight matrix of the first layer equals the number of rows in the input.
         validSize = fLayerSize == inputSize
         -- Ensures all input values are within the range [0, 1].
-        --validValues = all (\x -> x >= 0 && x <= 1) (toList input)
-        inputSize = nrows input
-        fLayerSize = ncols ( lWeights ( head ( layers net ) ) )
+        -- validValues = all (\x -> x >= 0 && x <= 1) (toList input)
+        inputSize = UV.length input
+        fLayerSize = M.ncols ( lWeights ( head ( layers net ) ) )
 
--- | Calculates the Hadamard product (element-wise multiplication) of two matrices.
--- 
---   This function uses an unsafe method for element-wise multiplication, assuming that the dimensions of the matrices
---   have been validated prior to the function call. It's faster but requires caution: ensure that the matrix dimensions 
---   match before using this function.
-hadamardProduct :: Num a 
-                => Matrix a -- ^ The first matrix in the Hadamard product.
-                -> Matrix a -- ^ The second matrix in the Hadamard product.
-                -> Matrix a -- ^ The resulting matrix after computing the Hadamard product.
-hadamardProduct = elementwiseUnsafe (*) -- Uses an unsafe element-wise operation for performance.
-    
 -- * Initialise Backpropagation Network
 
 -- | Constructs a backpropagation neural network (BackpropNet) using specified parameters.
@@ -173,13 +146,14 @@ hadamardProduct = elementwiseUnsafe (*) -- Uses an unsafe element-wise operation
 --   This function ensures that the dimensions of the weight matrices are compatible and
 --   creates each layer with the specified activation function.
 buildBackpropNet :: Double            -- ^ Learning rate.
-                 -> [Matrix Double]   -- ^ List of weight matrices for each layer.
+                 -> [M.Matrix Double]   -- ^ List of weight matrices for each layer.
                  -> ActivationFunc    -- ^ Activation function for each neuron.
                  -> BackpropNet       -- ^ Constructed backpropagation neural network.
 buildBackpropNet lr ws af = BackpropNet { layers = ls, learningRate = lr}
-    where 
+    where
         checkedWeights = scanl1 dimensionMatch ws  -- Ensures the compatibility of matrix dimensions.
         ls = map createLayer checkedWeights        -- Creates each layer with given weights and activation function.
+        createLayer :: M.Matrix Double -> Layer
         createLayer w = Layer { lWeights = w, lAF = af }
 
 -- * Propagation
@@ -195,7 +169,7 @@ propagate :: PropagatedLayer  -- ^ The previous layer whose output will be used 
           -> PropagatedLayer  -- ^ A new 'PropagatedLayer' representing the state of the next layer 
                              --   after the propagation, including its input, output, derivative of the 
                              --   activation function, weights, and activation function.
-propagate layerJ layerK 
+propagate layerJ layerK
     = PropagatedLayer {
             propIn = x,  -- Input to layerK is the output of layerJ.
             propOut = y, -- Output after applying the activation function.
@@ -203,24 +177,24 @@ propagate layerJ layerK
             propW = w, -- Weights of layerK.
             propAF = lAF layerK -- Activation function of layerK.
         }
-    where 
+    where
         x = propOut layerJ -- Output of layer J.
         w = lWeights layerK -- Weights from layer K.
-        a = multStd w x -- Matrix multiplication wx, resulting in a column vector.
+        a = M.matrixToVector $ M.multStd w (M.vectorToMatrix x) -- Matrix multiplication wx, resulting in a column vector.
         f = aF (lAF layerK) -- Activation function of layerK.
-        y = fmap f a 
+        y = UV.map f a
         f' = aF' (lAF layerK)
-        f'a = fmap f' a
+        f'a = UV.map f' a
 
 -- | Propagates an input vector through the neural network, returning the state of each layer after propagation.
 --   
 --   This function takes an input vector and a neural network, then computes the output for each layer.
 --   It starts with a special input layer and then applies the 'propagate' function to each subsequent layer.
-propagateNet :: ColumnVector Double -- ^ The input vector to the neural network.
+propagateNet :: M.ColumnVector Double -- ^ The input vector to the neural network.
              -> BackpropNet         -- ^ The backpropagation neural network through which the input is propagated.
              -> [PropagatedLayer]   -- ^ A list of 'PropagatedLayer' representing the state of each layer after the input is propagated through them.
 propagateNet input backNet = tail propLayers
-    where 
+    where
         propLayers = scanl propagate layer0 (layers backNet) -- Sequentially propagates through the network layers.
         layer0 = PropagatedInputLayer{ propOut = validateInputs } -- Initial layer to start the propagation.
         validateInputs = validateInput backNet input -- Validates the input vector before starting the propagation.
@@ -245,27 +219,27 @@ backpropagate layerJ layerK
     where
         -- The error term (dazzle) for the current layer is computed using the error term of the next layer,
         -- the derivative of the activation function, and the weights of the next layer.
-        dazzleJ = multStd wKT (hadamardProduct dazzleK f'aK)
+        dazzleJ = M.matrixToVector $ M.multStd wKT (M.vectorToMatrix $ UV.zipWith (*) dazzleK f'aK)
         dazzleK = bpDazzle layerK
-        wKT = transpose (bpW layerK)
+        wKT = M.transpose (bpW layerK)
         f'aK = bpF'a layerK
         f'aJ = propF'a layerJ
 
--- | Calculates the gradient of the error with respect to the weights of a layer.
---   
---   This is used in the backpropagation step to update the weights.
-errorGrad :: ColumnVector Double -- ^ The error term (dazzle) for the layer.
-          -> ColumnVector Double -- ^ The derivative of the activation function for the layer (f'a).
-          -> ColumnVector Double -- ^ The input to the layer.
-          -> Matrix Double       -- ^ The gradient of the error with respect to the layer's weights.
-errorGrad dazzle f'a input = multStd (hadamardProduct dazzle f'a) (transpose input)
+-- | This is used in the backpropagation step to update the weights.
+errorGrad :: M.ColumnVector Double -- ^ The error term (dazzle) for the layer.
+          -> M.ColumnVector Double -- ^ The derivative of the activation function for the layer (f'a).
+          -> M.ColumnVector Double-- ^ The input to the layer.
+          -> M.Matrix Double    -- ^ The gradient of the error with respect to the layer's weights.
+errorGrad dazzle f'a input =
+    M.multStd (M.vectorToMatrix (UV.zipWith (*) dazzle f'a)) (M.transpose (M.vectorToMatrix input))
+
 
 -- | Performs the backpropagation step for the final (output) layer of a neural network.
 --
 --   This function computes the initial error term and error gradient for the final layer, 
 --   based on the difference between the network's output and the target output.
 backpropagateFinalLayer :: PropagatedLayer      -- ^ The forward propagated state of the output layer.
-                        -> ColumnVector Double  -- ^ The target output vector.
+                        -> M.ColumnVector Double  -- ^ The target output vector.
                         -> BackpropagatedLayer  -- ^ The backpropagated state of the output layer.
 backpropagateFinalLayer layerK target
     = BackpropagatedLayer {
@@ -278,13 +252,13 @@ backpropagateFinalLayer layerK target
         bpAF = propAF layerK
     }
     where
-        dazzle = elementwiseUnsafe (-) (propOut layerK) target
+        dazzle = UV.zipWith (-) (propOut layerK) target
         f'a = propF'a layerK
 
 -- | Executes backpropagation across all layers of a neural network.
 --
 --   This function performs backpropagation in reverse order, starting from the output layer.
-backpropagateNet :: ColumnVector Double            -- ^ The target output vector for the entire network.
+backpropagateNet :: M.ColumnVector Double            -- ^ The target output vector for the entire network.
                  -> [PropagatedLayer]              -- ^ List of layers in their forward propagated state.
                  -> [BackpropagatedLayer]          -- ^ List of layers in their backpropagated state.
 backpropagateNet target propLayers
@@ -302,8 +276,8 @@ update :: Double              -- ^ The learning rate, determining how much the w
        -> Layer               -- ^ The updated layer with new weights.
 update rate layer = Layer { lWeights = wNew, lAF = bpAF layer}
     where
-        delW = scaleMatrix rate (bpErrGrad layer) -- Scales the error gradient by the learning rate.
-        wNew = elementwiseUnsafe (-) (bpW layer) delW -- Subtracts the scaled error gradient from the current weights.
+        delW = M.scaleMatrix rate (bpErrGrad layer) -- Scales the error gradient by the learning rate.
+        wNew = M.elementwise (-) (bpW layer) delW -- Subtracts the scaled error gradient from the current weights.
 
 updateLayers :: Double
              -> [BackpropagatedLayer]
@@ -323,11 +297,11 @@ initializeNetwork neurons activationFuncs a b lRate =
         networkLayers = zipWith Layer weightMatrices activationFuncs
 
 -- Training on a batch of data
-trainBatch :: BackpropNet -> [(ColumnVector Double, ColumnVector Double)] -> BackpropNet
+trainBatch :: BackpropNet -> [(M.ColumnVector Double, M.ColumnVector Double)] -> BackpropNet
 -- trainBatch net dataset = foldl trainSingleExample net dataset
 trainBatch = foldl trainSingleExample
     where
-        trainSingleExample :: BackpropNet -> (ColumnVector Double, ColumnVector Double) -> BackpropNet
+        trainSingleExample :: BackpropNet -> (M.ColumnVector Double, M.ColumnVector Double) -> BackpropNet
         trainSingleExample currentNet (input, target) = currentNet { layers = updatedLayers }
             where
                 propagatedLayers = propagateNet input currentNet
@@ -335,11 +309,11 @@ trainBatch = foldl trainSingleExample
                 updatedLayers = updateLayers (learningRate currentNet) backpropagatedLayers
 
 -- | Trains on a batch of data and logs the training process to a specified file.
-trainBatchLogged :: BackpropNet -> [(ColumnVector Double, ColumnVector Double)] -> FilePath -> IO BackpropNet
-trainBatchLogged net dataset logFilePath = withFile logFilePath AppendMode $ \handle -> 
+trainBatchLogged :: BackpropNet -> [(M.ColumnVector Double, M.ColumnVector Double)] -> FilePath -> IO BackpropNet
+trainBatchLogged net dataset logFilePath = withFile logFilePath AppendMode $ \handle ->
     foldM (trainSingleExample handle) net dataset
     where
-        trainSingleExample :: Handle -> BackpropNet -> (ColumnVector Double, ColumnVector Double) -> IO BackpropNet
+        trainSingleExample :: Handle -> BackpropNet -> (M.ColumnVector Double, M.ColumnVector Double) -> IO BackpropNet
         trainSingleExample handle currentNet (input, target) = do
             hPutStrLn handle "Training on a new example..."
             let propagatedLayers = propagateNet input currentNet  -- Assuming this is a pure function; adapt if necessary
@@ -350,12 +324,13 @@ trainBatchLogged net dataset logFilePath = withFile logFilePath AppendMode $ \ha
 
 
 
-trainEpochs :: BackpropNet -> Int -> [(ColumnVector Double, ColumnVector Double)] -> BackpropNet
+trainEpochs :: BackpropNet -> Int -> [(M.ColumnVector Double, M.ColumnVector Double)] -> BackpropNet
 trainEpochs net 0 _ = net
 trainEpochs net epochs dataset = trainEpochs trainedNet (epochs - 1) dataset
     where
         trainedNet = trainBatch net dataset
 
+{- 
 meanSquaredError :: ColumnVector Double -> ColumnVector Double -> Double
 meanSquaredError output target = (sum . toList $ fmap (^(2 :: Int)) (elementwiseUnsafe (-) output target)) / fromIntegral (nrows output)
 
@@ -364,8 +339,9 @@ evaluate net dataset = totalLoss / fromIntegral (length dataset)
     where
         totalLoss = sum $ map (\(input, target) -> meanSquaredError (extractOutput (propagateNet input net)) target) dataset
         extractOutput propLayers = propOut (last propLayers)
+-}
 
-getOutput :: BackpropNet -> ColumnVector Double -> ColumnVector Double
+getOutput :: BackpropNet -> M.ColumnVector Double -> M.ColumnVector Double
 getOutput net input = extractOutput (propagateNet input net)
     where
         extractOutput propLayers = propOut (last propLayers)
